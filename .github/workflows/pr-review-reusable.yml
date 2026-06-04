@@ -1,0 +1,73 @@
+name: PR Review (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        type: string
+        required: false
+        default: anthropic/claude-sonnet-4-6
+      pr_number:
+        type: string
+        required: false
+        default: ""
+        description: "Override PR number (for workflow_dispatch callers). Defaults to the triggering pull_request event's number."
+      ref:
+        type: string
+        required: false
+        default: ""
+        description: "Override checkout ref of mriechers/pr-watcher (defaults to main). Useful for validating workflow changes on a branch before merging."
+      self_review_author:
+        type: string
+        required: false
+        default: "mriechers"
+        description: "Only PRs authored by this login are reviewed (self-review safety check)."
+    secrets:
+      OPENROUTER_API_KEY:
+        required: true
+      PR_WATCHER_APP_ID:
+        required: true
+      PR_WATCHER_PRIVATE_KEY:
+        required: true
+      PR_WATCHER_INSTALLATION_ID:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout pr-watcher (for orchestrator code)
+        uses: actions/checkout@v4
+        with:
+          repository: mriechers/pr-watcher
+          ref: ${{ inputs.ref }}
+          path: pr-watcher
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pr-watcher/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r pr-watcher/requirements.txt
+
+      - name: Run reviewer
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number != '' && inputs.pr_number || github.event.pull_request.number }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PR_WATCHER_APP_ID: ${{ secrets.PR_WATCHER_APP_ID }}
+          PR_WATCHER_PRIVATE_KEY: ${{ secrets.PR_WATCHER_PRIVATE_KEY }}
+          PR_WATCHER_INSTALLATION_ID: ${{ secrets.PR_WATCHER_INSTALLATION_ID }}
+          REVIEW_MODEL: ${{ inputs.model }}
+          SELF_REVIEW_AUTHOR: ${{ inputs.self_review_author }}
+          PYTHONPATH: pr-watcher
+        run: python -m pr_review.orchestrator
